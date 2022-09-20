@@ -42,102 +42,18 @@ proctype User(int id; bool isOwner){
     skip;
 }
 
-// active proctype Alice(){
-//     run Contract(alice);
-//     do
-//         ::true ->
-//             if
-//             ::ToContract!DistributeAssets, alice
-//             ::true -> goto retry_alice
-//             fi
-
-//             if
-//                 ::ToAlice?ReceiveEarnings ->
-//                     end_ownerPaid:
-//                         goto end_alice;
-//                 ::ToAlice?ReceiveItem ->
-//                     end_ownerRefunded:
-//                         goto end_alice;
-//                 ::ToAlice?Invalid
-// //                ::else -> skip;
-//             fi
-//         retry_alice:
-//         skip
-//     od
-//     end_alice:
-//     skip;
-// }
-
-// active proctype Bob(){
-//     do
-//         ::true ->
-//             if
-//                 ::ToContract!DistributeAssets, bob
-//                 ::ToContract!BidHigher, bob
-//                 ::ToContract!BidLower, bob
-//                 ::true -> goto retry_bob
-//             fi
-//             if
-//                 ::ToBob?Invalid ->
-//                     skip;
-//                 ::ToBob?BidSuccess ->
-//                     progress_bob:
-//                     skip;
-//                 ::ToBob?ReceiveEarnings ->
-//                     accept_InvalidState:
-//                         goto end_bob;
-//                 ::ToBob?ReceiveItem ->
-//                     end_bobWon:
-//                         goto end_bob;
-// //                ::else -> skip;
-//             fi
-//         retry_bob:
-//         skip
-//     od
-//     end_bob:
-//     skip;
-// }
-
-// active proctype Charlie(){
-//         do
-//             ::true ->
-//                 if
-//                     ::ToContract!DistributeAssets, charlie
-//                     ::ToContract!BidHigher, charlie
-//                     ::ToContract!BidLower, charlie
-//                     ::true -> goto retry_charlie
-//                 fi
-//                 if
-//                     ::ToCharlie?Invalid ->
-//                         skip;
-//                     ::ToCharlie?BidSuccess ->
-//                         progress_charlie:
-//                         skip;
-//                     ::ToCharlie?ReceiveEarnings ->
-//                         accept_InvalidState:
-//                             goto end_charlie;
-//                     ::ToCharlie?ReceiveItem ->
-//                         end_charlieWon:
-//                             goto end_charlie;
-// //                    ::else -> skip;
-//                 fi
-//         retry_charlie:
-//         skip
-//     od
-//     end_charlie:
-//     skip;
-// }
-
 proctype Contract(int ownerId){
     int highestBidder = -1;
     bool hasBid = false;
     int current = -1;
     do
+        // If this is a higher bid, update the highest bidder and notify the caller
         ::ToContract?BidHigher, current ->
             hasBid = true;
             highestBidder = current;
             ToUser[current]!BidSuccess;
             current = -1;
+        // If this is a lower bid, reject the request
         ::ToContract?BidLower, current ->
             if
             // I'm not really sure about this case because I feel like it might complicate analysis later... Should we just "assume" that bid lower always fails? 
@@ -151,6 +67,7 @@ proctype Contract(int ownerId){
                 ToUser[current]!Invalid;
                 current = -1;
             fi
+        // Attempting to distribute assets before the auction ends should fail.
         ::ToContract?DistributeAssets, current ->
                 ToUser[current]!Invalid;
                 current = -1;
