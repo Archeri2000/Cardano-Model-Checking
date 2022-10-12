@@ -1,1 +1,6 @@
 spin.exe
+spin
+ispin.tcl
+*.tmp
+pan.*
+spinbat.bat
