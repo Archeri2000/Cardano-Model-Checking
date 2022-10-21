@@ -1,18 +1,30 @@
-// Alice will call this
-mtype = {DistributeAssets, Invalid, ReceiveEarnings, ReceiveItem};
+// Users will call this
+mtype = {DistributeAssets, BidHigher, BidLower, None};
 
-// Bob and Charlie will call this
-mtype = {BidHigher, BidLower, BidSuccess};
 
+typedef Log{
+    mtype Message = None;
+    int Caller = 0;
+    bool isSuccess = false;
+}
+
+Log log;
+
+int WinningBidder = -1;
+//TODO
+int Earnings = -1;
+
+
+// Rendevouz Messaging Channel
+chan ToContract = [0] of {mtype, int};
+
+// Process Synchronisation Variables
 bool hasContract = false;
 
 bool auctionFinish = false;
 
 int usersWaiting = 0;
 
-//chan ToUser[3] = [1] of {mtype};
-
-chan ToContract = [0] of {mtype, int};
 
 proctype User(int id; bool isOwner){
     // If this user is supposed to be the owner, create the contract
@@ -33,17 +45,6 @@ proctype User(int id; bool isOwner){
         ::atomic{!auctionFinish -> 
                     usersWaiting++;
                     ToContract!BidLower, id;}
-//             if
-//                 ::ToUser[id]?Invalid ->
-//                     skip;
-//                 ::ToUser[id]?BidSuccess ->
-//                     skip;
-//                 ::ToUser[id]?ReceiveEarnings ->
-//                         goto end;
-//                 ::ToUser[id]?ReceiveItem ->
-//                         goto end;
-// //                ::else -> skip;
-//             fi
     od
     end:
     skip;
@@ -57,7 +58,7 @@ proctype Contract(int ownerId){
     int current = -1;
     int ticks = 10;
     do
-        ::ticks > 0 ->
+        ::atomic{ticks > 0 ->
             if
                 // If this is a higher bid, update the highest bidder and notify the caller
                 ::ToContract?BidHigher, current ->
@@ -65,7 +66,9 @@ proctype Contract(int ownerId){
                     hasBid = true;
                     highestBidder = current;
                     printf("%d is the highest bidder.\n", highestBidder);
-                    //ToUser[current]!BidSuccess;
+                    log.Message = BidHigher;
+                    log.Caller = current;
+                    log.isSuccess = true;
                     current = -1;
                 // If this is a lower bid, reject the request
                 ::ToContract?BidLower, current ->
@@ -77,30 +80,40 @@ proctype Contract(int ownerId){
                         hasBid = true;
                         highestBidder = current;
                         printf("%d is the highest bidder as there was no previous highest bid.\n", highestBidder);
-                        //ToUser[current]!BidSuccess;
+                        log.Message = BidLower;
+                        log.Caller = current;
+                        log.isSuccess = true;
                         current = -1;
                     ::else ->
                         printf("Call to contract invalid: Bid too low.\n");
-                        //ToUser[current]!Invalid;
+                        log.Message = BidLower;
+                        log.Caller = current;
+                        log.isSuccess = false;
                         current = -1;
                     fi
                 // Attempting to distribute assets before the auction ends should fail.
                 ::ToContract?DistributeAssets, current ->
                     usersWaiting--;
                     printf("Call to contract invalid: Bidding still in progress.\n");
-                    //ToUser[current]!Invalid;
+                    log.Message = DistributeAssets;
+                    log.Caller = current;
+                    log.isSuccess = false;
                     current = -1;
-                //::true
                 ::true;
             fi
-            ticks--;
+            ticks--;}
         ::else -> goto auctionEnd;
     od
 
     // State when the auction has ended
     auctionEnd:
+    atomic{
+        log.Message = None;
+        log.Caller = -1;
+        log.isSuccess = false;
+    }
     do
-        ::ToContract?DistributeAssets, _ ->
+        ::atomic{ToContract?DistributeAssets, _ ->
             usersWaiting--;
             if
                 // If there's a highest bidder then the bidder should get the item and the contract owner should get the earnings.
@@ -109,24 +122,34 @@ proctype Contract(int ownerId){
                     //ToUser[ownerId]!ReceiveEarnings;
                     printf("%d received the item from the auction.\n", highestBidder);
                     //ToUser[highestBidder]!ReceiveItem;
+                    log.Message = DistributeAssets;
+                    log.Caller = current;
+                    log.isSuccess = true;
                 // Otherwise the item is returned to the owner.
                 ::else ->
                     printf("%d received the item from the auction as there was no bidder.\n", ownerId);
                     //ToUser[ownerId]!ReceiveItem;
+                    log.Message = DistributeAssets;
+                    log.Caller = current;
+                    log.isSuccess = true;
             fi
-            goto cleanup;
+            goto cleanup;}
 
         // Calling other functions after the auction has ended should fail.
-        ::ToContract?BidHigher, current ->
+        ::atomic{ToContract?BidHigher, current ->
             usersWaiting--;
             printf("Call to contract invalid: Bidding is over.\n");
-            //ToUser[current]!Invalid;
-            current = -1;
-        ::ToContract?BidLower, current ->
+            log.Message = BidHigher;
+            log.Caller = current;
+            log.isSuccess = false;
+            current = -1;}
+        ::atomic{ToContract?BidLower, current ->
             usersWaiting--;
             printf("Call to contract invalid: Bidding is over.\n");
-            //ToUser[current]!Invalid;
-            current = -1;
+            log.Message = BidLower;
+            log.Caller = current;
+            log.isSuccess = false;
+            current = -1;}
     od
     cleanup:
     auctionFinish = true;
@@ -147,4 +170,18 @@ init {
     run User(2, false);
 }
 
+// Contract should eventually end
 ltl p1 {<>Contract@end_contract}
+
+// Contract should always time out eventually
+ltl p2 {<>Contract@auctionEnd}
+
+// Calling bid higher before timeout should always succeed
+#define bidHigherAlwaysSucceed ((log.Message != BidHigher) || (log.isSuccess))
+ltl p3 {bidHigherAlwaysSucceed U Contract@auctionEnd}
+
+// If Distribute assets called before timeout,  it will fail
+#define distributeAssetsShouldFail ((log.Message != DistributeAssets) || (!log.isSuccess))
+ltl p4 {distributeAssetsShouldFail U Contract@auctionEnd}
+
+// Calling bid higher after timeout should always fail
