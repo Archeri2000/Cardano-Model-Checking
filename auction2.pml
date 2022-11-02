@@ -205,3 +205,27 @@ ltl p8 {[](Contract@end_contract -> [](WinningBidder != 1 -> tokens[1] >= 20))}
 
 // User 2 should keep all tokens if they failed to win
 ltl p9 {[](Contract@end_contract -> [](WinningBidder != 2 -> tokens[2] >= 20))}
+
+// User 0 should get more tokens if they are the owner and did not win the auction themselves
+ltl p10 {[](Contract@end_contract -> [](WinningBidder != 0 && User[1]:isOwner -> tokens[0] > 20))}
+
+// User 1 should get more tokens if they are the owner and did not win the auction themselves
+ltl p11 {[](Contract@end_contract -> [](WinningBidder != 0 && User[2]:isOwner -> tokens[1] > 20))}
+
+// User 2 should get more tokens if they are the owner and did not win the auction themselves
+ltl p12 {[](Contract@end_contract -> [](WinningBidder != 0 && User[3]:isOwner -> tokens[2] > 20))}
+
+// User 0 should get no tokens if they are the owner and won the auction themselves
+ltl p13 {[](Contract@end_contract -> [](WinningBidder == 0 && User[1]:isOwner -> tokens[0] == 20))}
+
+// User 1 should get no tokens if they are the owner and won the auction themselves
+ltl p14 {[](Contract@end_contract -> [](WinningBidder == 0 && User[2]:isOwner -> tokens[1] == 20))}
+
+// User 2 should get no tokens if they are the owner and won the auction themselves
+ltl p15 {[](Contract@end_contract -> [](WinningBidder == 0 && User[3]:isOwner -> tokens[2] == 20))}
+
+// The winning bidder should lose tokens equal to the highest bid if they arent the owner
+ltl p16 {[](Contract@end_contract -> [](WinningBidder != Contract[4]:ownerId -> tokens[WinningBidder] == 20 - bid))}
+
+// The total number of tokens in the system should be the same at the end of the contract
+ltl p17 {[](Contract@end_contract -> [](tokens[0] + tokens[1] + tokens[2] + bid == 60))}
